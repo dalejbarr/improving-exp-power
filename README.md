@@ -97,3 +97,5 @@ docker container run --rm --volume /home/user/sims:/output dalejbarr/improving-e
   1. number of monte carlo runs;
   2. name of output directory where simulation results files will be stored 
 - `supplementary/` : a report of supplementary simulations described in the manuscript
+
+![CC-BY License](https://mirrors.creativecommons.org/presskit/buttons/88x31/png/by.png)
