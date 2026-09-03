@@ -1,0 +1,124 @@
+#+TITLE: Supplementary materials for Liang and Barr, "Improving power without increasing sample size"
+#+date: \today
+#+latex_class: apa7
+#+latex_class_options: [doc]
+#+latex_header: \authorsnames[1, 1]{Jinghui Liang, Dale J. Barr$^*$}
+#+latex_header: \authorsaffiliations{{School of Psychology and Neuroscience, University of Glasgow, UK}}
+#+latex_header: \leftheader{Supplementary Materials, Liang \& Barr}
+#+latex_header: \shorttitle{Supplementary Materials, Liang \& Barr}
+#+latex_header: \usepackage{parskip}
+#+latex_header: \keywords{experimental design, statistical power, measurement}
+#+latex_header: \authornote{$^*$Corresponding author: Dale J. Barr, School of Psychology \& Neuroscience, University of Glasgow, 62 Hillhead Street, Glasgow, UK, G12 8QB. Email: dale.barr@glasgow.ac.uk.}
+#+latex_header: \usepackage{longtable}
+#+latex_header: \usepackage{soul}
+#+latex_header: \hypersetup{colorlinks,citecolor=blue,linkcolor=blue,urlcolor=red}
+#+OPTIONS: toc:nil num:nil ^:nil author:nil ':t
+#+latex_compiler: pdflatex
+#+bibliography: refs.bib
+#+cite_export: csl apa7.csl
+#+MACRO: nb $1\nbsp{}$2
+#+PROPERTY: header-args:R :session *R* :exports results :tangle supplementary-materials.R
+
+* Supplementary simulations
+
+@@latex:\setlength{\parindent}{0cm}@@
+
+We undertook a set up supplementary simulations to find optimal parameters for Wiggly Intercept Models (WIMs) given the independent variables of error structure, number of levels of the independent variable, and number of repetitions. The latter of these three variables determines the number of trials in the experiment.
+
+In the first subsection, we describe simulations that we rand to determine the best type of basis function to use, comparing the default "thin plate" (~tp~ option) to cubic regression (~cr~ option) and P-splines (~ps~ option). This suggested that P-splines performed best for improving power, although differences were very small.
+
+In the second subsection, we describe simulations to determine the optimal number of basis function for each combination of type of error structure, number of levels, and number of repetitions.
+
+** 1. Type of basis function
+
+#+begin_src R :exports none :results silent
+  options(tidyverse.quiet=TRUE)
+  library("tidyverse")
+
+  d_basis <- read_rds(file.path("..", "results", "results-compare-basis-combined.rds"))
+
+  d_basis2 <- d_basis |>
+    mutate(nsig = map_int(pvals, \(.x) sum(.x < .05, na.rm = TRUE)),
+	   N = map_int(pvals, \(.x) sum(!is.na(.x))),
+	   power = nsig / N) |>
+    select(-pvals)
+
+  .np <- d_basis2 |> pull(np) |> unique()
+  .nl <- d_basis2 |> pull(nl) |> unique()
+  .nr <- d_basis2 |> pull(nr) |> unique()
+  .nmc <- d_basis2 |> pull(N) |> unique()
+#+end_src
+
+Because running simulations for the full set of parameter values would be take too much time, we focused on a single set of parameters for a medium sized design (src_R{.nl} levels and src_R{.nr} repetitions, or src_R{.nl * .nr} trials), under the assumption that any advantages seen here would hold for other types of designs.
+
+The number of participants for each dataset was src_R{.np}, which differs from the number in the paper (25) because these simulations were run as part of an earlier version of the project. We see no reason for concern that these results would diverge for a smaller number of participants; in any event, the results are fairly similar across the different types of basis functions, making the choice somewhat arbitrary. Model syntax was as described in the main paper. 
+
+#+NAME: b-type
+#+HEADER: :file fig/compare-basis.pdf :width 8 :height 2.8
+#+begin_src R :exports results :results output graphics file
+  ggplot(d_basis2,
+	 aes(etastep, power, color = approach)) +
+    geom_line() +
+    geom_point() +
+    facet_wrap(~estr, nrow=1) +
+    labs(x = "effect size") +
+    theme_bw() +
+    theme(legend.position = "top") 
+#+end_src
+
+#+NAME: fig:b-type
+#+CAPTION: Power for the three basis function types by effect size and error structure.
+#+RESULTS: b-type
+[[file:fig/compare-basis.pdf]]
+
+{{{nb(Figure,[[fig:b-type]])}}} shows the results for src_R{.nmc} simulations at each setting of error structure and effect size. Differences are minor, but p-splines show the best performance numerically, evident mainly for the exponential decay setting.
+
+** 2. Number of basis functions
+
+We fixed the basis function to be P-splines and the number of participants to be 25, and ran a set of simulations to determine the optimal number of basis functions for each type of dataset, given the error structure, number of levels of the within factor, and number of repetitions per level. The minimum number of allowed basis functions was 6; the maximum was 1/3 of the number of trials (which as one of 12, 24, 48, 96, or 192, depending on the number of levels and number of repetitions). In these simulations, we set the ~k~ parameter of the factor smooth to the maximum, and then extracted the "estimated degrees of freedom" (edf) to see if a smaller value was admissible. We ran at least 200 simulations at each of the src_R{4 * 3 * 3} {{{results(=36=)}}} parameter settings obtained by combining the four error structures, the three numbers of levels of the IV, and the three numbers of repetitions. We calculated the mean edf at each parameter setting and used that as our value, unless it was less than six, in which case six basis functions were used.
+
+#+NAME: b-num
+#+HEADER: :file fig/n-basis.pdf :width 8 :height 6
+#+begin_src R :exports results :results output graphics file
+  dat_nbasis <- read_rds(file.path("..", "results", "choose-basis-fn_targets-25.rds")) |>
+      mutate(errstr = fct_recode(errstr,
+				 "learning" = "expDecay",
+				 "r.walk" = "randomWalk",
+				 "pink" = "pinkNoise") |>
+	       fct_relevel("learning", "r.walk", "pink"),
+	     reps = sprintf("%d reps", nr) |>
+	       fct_relevel("6 reps", "12 reps", "24 reps"),
+	     levels = sprintf("%d levels", nl) |>
+	       fct_relevel("2 levels", "4 levels", "8 levels"))
+
+  dat_maxbasis <- crossing(nl = c(2L, 4L, 8L),
+			   nr = c(6L, 12L, 24L)) |>
+    mutate(reps = sprintf("%d reps", nr) |>
+	     fct_relevel("6 reps", "12 reps", "24 reps"),
+	   levels = sprintf("%d levels", nl) |>
+	     fct_relevel("2 levels", "4 levels", "8 levels"),           
+	   nt = nl * nr,
+	   ntrials = sprintf("%d trials", nt),
+	   max = if_else((nl * nr) <= 12L, 6L, (nl * nr) / 3))
+
+  ggplot(dat_nbasis,
+	 aes(errstr, targ_k)) +
+    geom_hline(aes(yintercept = max), data = dat_maxbasis, alpha = .5, linetype = 2) +
+    geom_col(aes(fill = errstr)) +
+    geom_text(aes(label = targ_k), nudge_y = -3, color = "white") +
+    geom_text(aes(label = ntrials), data = dat_maxbasis,
+	      x = 2.5, y = 68) +
+    coord_cartesian(ylim = c(0, 70)) +
+    xlab("error structure") +
+    ylab("number of basis functions") +
+    facet_grid(reps ~ levels, scales = "fixed") +
+    guides(fill = "none", color = "none") +
+    theme_bw()
+#+end_src
+
+#+NAME: fig:basis-functions
+#+CAPTION: Optimized number of basis functions for WIMs derived from 200 simulations runs for each type of error structure, levels of the independent variable, and number of repetitions. The dashed line in the background represents the maximum allowed number, either 1/3 of the number of trials or six, whichever is bigger.
+#+RESULTS: b-num
+[[file:fig/n-basis.pdf]]
+
+The selected number of basis functions are shown in {{{nb(Figure,[[fig:basis-functions]])}}}. 

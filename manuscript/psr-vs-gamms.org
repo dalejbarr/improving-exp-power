@@ -1,0 +1,650 @@
+#+SETUPFILE: setup.org
+
+#+NAME: setup
+#+begin_src R :exports none :results silent
+  source("compute-results.R")
+  suppressPackageStartupMessages({
+    library("psrsim")
+  })
+
+  ## some values for to present inline
+  ## all_diffs <- dat_powsum |>
+  ##   filter(!(case == "WRI" & estr == "pink noise" &
+  ## 	   design == "small design (25, 2, 8)"),
+  ## 	 case != "baseline")
+
+  ## .overall_adv <- all_diffs |>
+  ##   summarize(median = median(adv),
+  ## 	    min = min(adv),
+  ## 	    max = max(adv)) |>
+  ##   unlist()
+
+  ## .all_bl <- dat_powsum |>
+  ##   filter(case == "baseline") |>
+  ##   select(design, estr, bl_lo = lower, bl_hi = upper, bl_m = power)
+
+  ## .rw_lg <- dat_powsum |>
+  ##   filter(case != "baseline", estr == "random walk",
+  ## 	 design == "large design (60, 8, 24)") |>
+  ##   select(case, adv) |>
+  ##   deframe()
+
+  ## .le_sm <- dat_powsum |>
+  ##   filter(case != "baseline", estr == "learning effect",
+  ## 	 design == "small design (25, 2, 8)") |>
+  ##   select(case, adv) |>
+  ##   deframe()
+#+end_src
+
+#+NAME: fns-helper
+#+begin_src R :exports none :results silent
+  ## formatted confidence intervals for power
+  .c <- function(x) {
+    cat(x, "\n", sep = "")
+  }
+
+  .ci99 <- function(x) {
+    if (nrow(x) > 1L) stop("one row at a time")
+    sprintf("[%0.1f, %0.1f]", 100 * x[["lower"]], 100 * x[["upper"]])
+  }
+
+  ## get rid of leading zero
+  no_zero <- function(x, digits = 2) {
+    fmt_string <- sprintf("%%.%df", digits)
+    y <- sprintf(fmt_string, x)
+    if_else(substr(y, 1, 1) == "0",
+	    substr(y, 2, nchar(y)), y)
+  }
+
+  ## functions for inline text
+  ## format as percent
+  .pfmt <- function(x, digits = 1) {
+    fmt_string <- sprintf("%%0.%df%%%%", digits)
+    sprintf(fmt_string, x)
+  }
+
+  .to_vec <- function(x) {
+    x |>
+      pivot_longer(cols = c(1, 2),
+		   names_to = "var", values_to = "val") |>
+      deframe()
+  }
+
+  .rge <- function(x, y, digits = 4, percent = FALSE) {
+    str_post <- if (percent) "%%" else ""
+    fstr <- sprintf("[%%0.%df%s, %%0.%df%s]",
+		    digits, str_post, digits, str_post)
+    sprintf(fstr, x, y)
+  }
+
+  .fi <- function(x) { # format integer
+    format(x, big.mark = ",")
+  }
+#+end_src
+
+@@latex:\setlength{\parindent}{0cm}@@
+
+#+begin_quote
+/"No one ever steps into the same river twice, for they are not the same person and it is not the same river."/ - attributed to Heraclitus
+#+end_quote
+
+Experimental psychologists often carry out experiments under the simplifying assumption that their participants do not change while being measured. This assumption is reflected in how they design experiments as well as in how they analyze the resulting data. When randomizing a set of trials and stimuli into a presentation sequence, experimenters' overarching concern is to create a sequence that is not easy to predict and that has a balanced representation of stimuli and/or conditions across participants. Because measurement takes time, the set of observations measured in response to the sequence will form a time series for each participant. Analyses of experimental data often ignore time as a factor, often collapsing each participant's data into condition means before performing inferential statistics, with the result that any temporal trends in the data are lost.
+
+These practices persist despite abundant evidence in the literature that some amount of change usually occurs during a period of measurement [cite:@Thul_Conklin_Barr_2021; @Baayen_et-al_2017]. As participants become familiar with an experimental task, they tend to get faster and more accurate; as the experiment wears on, fatigue can make them slower and more variable. They may experience distractions or other lapses of attention; they may try out different response strategies; they may get bored, hungry, or sleepy. Change is inevitable, idiosyncratic, and happening simultaneously on multiple time scales, from milliseconds to minutes. Moreover, the act of measurement itself can perturb the state of the human or non-human animal systems being measured, a property shared with quantum systems [cite:@Pothos_Busemeyer_2022]. So, with apologies to Heraclitus: Do we ever really measure the same participant twice?
+
+Stated more technically, experiments are typically designed and analyzed under the assumption that the processes being measured are stationary. A /stationary/ process is one whose governing parameters do not depend on time. And although the processes that a researcher targets in an investigation may, to a first approximation, be stationary, other `nuisance' factors that also contribute to the dependent variable are not. These time-varying nuisance factors can give rise to residuals that are `autocorrelated'—that is, that are correlated with time-shifted copies of themselves, such that a residual at time \(t\) is more strongly similar to residuals at \(t-1\) and \(t+1\) than with residuals further away in the time series. Autocorrelated residuals can be a cause for concern in that it violates the independence assumption underlying parametric statistical models [cite:@Amon_Holden_2021; @Baayen_et-al_2017].
+
+In some situations, non-independence tends to inflate false positive rates, often to a dramatic degree [cite:see, e.g., @Barr_et-al_2013; @Oberauer_2022; @Schielzeth_Forstmeier_2009]. However, autocorrelated residuals from an experiment will not do so as long as the researcher has independently randomized the sequential order of trials for each participant [cite:@Thul_Conklin_Barr_2021]. Randomizing ensures that effects of time-varying nuisance factors are not systematically confounded with experimental effects of interest. Experiments where each participant receives levels of the independent variable in an independently randomized sequence will give rise to false positives at the so-called `nominal' rate—i.e., at the rate determined by \(\alpha\)—regardless of the autocorrelation pattern.
+
+Given that researchers usually randomize the order of experimental trials, time-varying perturbations will tend to inflate the false /negative/ rate rather than the false positive rate; in other words, it impairs statistical power. Low statistical power has been a persistent problem in psychology and neuroscience, with science reformers calling for researchers to increase sample size [cite:@Munafo_et-al_2017; @Button_et-al_2013]. But given the cost of recruiting and testing participants—especially for clinical or other special populations—researchers should pursue larger samples only after all other options for making experiments more efficient have been exhausted.
+
+A more fundamental way to improve power is by improving the quality of measurement by controlling the effects of time-varying nuisance factors. The key question is how to do so in a way that is safe, effective, and accessible. In this paper, we contrast two top solutions from two more general classes of approaches: model-based and design-based. 
+
+** Model-based approaches
+
+Model-based approaches seek to tame effects of time-varying nuisance factors by incorporating them in the analytical model. To do so, the modeling approach must be sufficiently expressive to allow for wiggly and/or asymptotic components. Also, nuisance factors are things that are likely to vary unsystematically across participants; although every participant may show effects of learning, fatigue, or the waxing and waning of attention or motivation, none will show them in exactly the same way. Thus, an approach is needed that allows for different time-varying patterns across participants. Simply adding time (or trial number) as a linear predictor to a model is very unlikely to yield much benefit, even if the effect of time/trial is allowed to vary over participants through a random slope.
+
+But how complex should the model be? Which effects should be allowed to vary over time, and which should be treated as stationary? What modeling framework should we use? It can be difficult for the practical researcher to decide. Growth Curve Models provide one attractive option for modeling wiggly patterns. In a Growth Curve Model, patterns of change can be captured in the parameters of a polynomial function of arbitrarily high order [cite:@Mirman_2017]. These models are expressive and provide the advantage of having readily interpretable components. They can capture idiosyncratic wiggly patterns by allowing coefficients to vary across participants through random effects. However, polynomial functions assume that change is everywhere continuous, and therefore have difficulty dealing with patterns with asymptotic components, as is often the case for learning effects. They also do not provide built-in protection against underfitting or overfitting, leaving it up to the analyst to find the proper balance between parsimony and fidelity to the data.
+
+Other more data-driven approaches are available that use the data itself to determine the appropriate level of complexity. One such approach uses deep learning to model cognitive processes in continuous time [cite:@Shain_Schuler_2024]. This approach is appealing because it potentially allows for the modeling of the effects of time on /all/ parameters governing the response distribution. Similarly, distributional regression with Generalized Additive Models [cite:@Merder_et-al_2026] use cross-validation or Bayesian approaches to determine model complexity, and has the advantage of greater interpretability relative to deep learning models.
+
+If there were no tradeoff to using complex models, we should choose the most expressive, state-of-the-art approach on the market.  Unfortunately, complex models can be challenging to specify, may demand large amounts of technical or computational expertise, require long computation times, and yield results that can be hard to interpret and communicate. We can occupy a middle ground between too simple and too complicated models by making the simplifying assumption that time-dependent effects are localized to the error stratum—in other words, by assuming that our effects of interest are largely stationary, while nuisance processes are not. In this middle ground we can also relax the need for complete interpretability: since the time-based components of any model are just there to soak up variability that would otherwise mask effects of interest, we don't need to worry too much about how to interpret them.
+
+Among the model-based candidates for dealing with time-based nuisance factors, Generalized Additive Mixed Models [cite:GAMMs;; @Baayen_et-al_2017; @Hastie_Tibshirani_1986; @Wood_2017] seem particularly well-suited. GAMMs easily and gracefully account for wiggly or asymptotic components, and use cross-validation (or Bayesian techniques) as safeguards against overfitting. Monte Carlo simulations suggest that GAMMs can boost power while maintaining false positive rates at nominal levels [cite:@Thul_Conklin_Barr_2021][fn:: In these simulations, statistical power for detecting between-participant factors was impaired when using GAMMs, but this was later shown to be the result of a bug in the ~mgcv~ package that was corrected in a subsequent version [cite:see @Baayen_et-al_2022].]. Still, these benefits incur a technical cost, requiring specification of the type and number of basis functions as well as penalization terms. 
+
+The expressive power of model-based approaches comes at the cost of technical and computational complexity. Increasing model complexity unlocks additional `researcher degrees of freedom' [cite:@Simmons_Nelson_Simonsohn_2011], expanding the modeling space in which a `successful' (i.e., hypothesis-supporting) model can be found. Even with the best intentions, researchers who are not sufficiently knowledgeable about these tools can end up accepting models that are biased toward their research hypotheses, or that are misspecified, poorly justified, and opaque. Researchers who are not statistical experts therefore need to approach model-based approaches with an abundance of caution, and ideally should preregister their modeling plan in advance of the data.
+
+** Design-based approaches
+
+Model-based approaches are retrospective in the sense that they attempt to clean up data after it has been collected. But anyone serious about improving statistical power should also be willing to address the problem /prospectively/; that is, by planning better experiments. If we accept that measurement is changing over time, then how we organize the trials in an experiment over time becomes of paramount importance. /Design-based/ approaches attempt to control for time-varying nuisance effects by constraining the randomization process so that conditions are roughly balanced over time while still remaining difficult for participants to predict.
+
+Consider, for instance, that in reaction time experiments, measurements from the first few trials are often much higher than measurements taken later in the sequence. If we are not careful in how we randomize, conditions associated with one level of the independent variable might, by chance, end up over-represented early in the sequence of trials for a given participant. This would inflate the sample mean away from the true mean in that condition for that participant. At first blush, this situation might seem to increase false positive rates, as the mean for one condition will be biased away from its true value. However, upon reflection it becomes clear that its true impact would be to impair power so long as conditions are randomized independently for each participant, because then any such bias is random rather than systematic, and so will contribute to the error term in the model.
+
+What becomes clear from an analysis such as the above is the potential utility of constraining the randomization algorithm so that the distribution of conditions over time is roughly balanced. Until recently, the possibility of controlling for time-varying nuisance effects through design has been almost wholly neglected. One proposed randomization algorithm, Permuted Subblock Randomization (PSR), divides the set of conditions within a single block of trials into balanced subblocks, and then independently randomizes the sequence within each subblock [cite:@Liang_Barr_2024]. In Monte Carlo simulations, this approach consistently boosted power across a range of study designs and a variety of time-varying error patterns, while keeping the false positive rate under strict control. The observed benefit was up to 45%, with a median gain of 13%. 
+
+** Better models or better designs? Or perhaps, both?
+
+There is currently no available performance data on design-based and model-based approaches that would allow researchers to choose between these approaches. Currently, decisions can only be made on pragmatic grounds. An argument favoring PSR over GAMMs is that it is easier to implement and can be combined with traditional analytical techniques that are more widely known and therefore easier to implement and communicate. However, it would be unfortunate if the power benefit for PSR turned out to be much lower than that for GAMMs or other model-based approaches. It also seems likely that the performance of correction methods will depend on both the structure of the nuisance variation over time as well as on length of the time series, as determined by the number of trials, which in turn is a direct function of the number of levels of the independent variable (or variables) along with the number of repetitions per level.
+
+Because design-based approaches are applied prospectively and model-based approaches retrospectively, they could potentially be used together within the same experiment. Whether this is beneficial or not depends on whether they capture roughly the same information. To the extent they do, one should see little combined benefit as compared to the performance of the better of the two approaches applied alone. If they capture different information, then the combined benefit should outperform the better of the two. Although there is no compelling reason to believe that the two approaches would interfere with one another such that combining them would impair power, it is important to check for this possibility. 
+
+The primary goal of this article is to estimate the statistical power benefit of using these two approaches, applied alone and together, across a variety of realistic experimental scenarios and designs. This performance data can help researchers make informed decisions about improving power. To this end, in the current article we report the results of a set of Monte Carlo simulations in which we simulated data with four types of plausible time-varying noise and varying numbers of trials. The four time-varying noise patterns were a learning effect, a random walk pattern, pink noise, and a random mix of the previous three. The number of trials in a given design was determined by factorially combining two variables: the number of levels of the independent variable (two, four, or eight) and the number of repetitions at each level (six, twelve, or twenty-four). The number of participants remained fixed at 25, as we were interested in how these techniques improve power for relatively small samples of participants. These reflect realistic parameter values that are based on a review of a year's worth of experiments published in the /Journal of Experimental Psychology: Human Perception and Performance/ [cite:@Liang_Barr_2024]. 
+
+To estimate the benefit of using PSR or GAMMs, we compared the estimated power for each approach to that of a baseline `no correction' condition. This baseline condition used the field-standard simple restricted randomization (equivalent to PSR with a single subblock) and the data were analyzed using a standard linear mixed-effects model with by-participants random intercepts and slopes, but without any time-varying component. We calculated the percent increase in power from this baseline for each of our model-based or design-based `corrective' approaches applied alone, as well as together.
+
+For the model-based approach, we used a GAMM that was equivalent to the baseline model but with the addition of a by-participant `factor smooth' over trial number [cite:for further information about factor smooths, see @Baayen_et-al_2017; @Wood_2017]. The factor smooth allowed for a different wiggly pattern over trials for each participant; we refer to this GAMM specification as a Wiggly Intercepts Model (WIM). We wanted to use the best possible model specification for improving power, and so we used pilot simulations to determine the best type of basis function as well as the optimal number of basis functions.
+
+Our design-based approach was PSR, where the main parameter affecting power is the number of subblocks. A subblock is the basic unit of randomization, and should contain a balanced number of levels of the independent variable. The valid numbers of subblocks for PSR is given by the set of integer divisors of the number of repetitions, with the benefit to statistical power increasing monotonically with the number of subblocks [cite:@Liang_Barr_2024]. For example, a design with 24 repetitions could have anywhere from one to twenty-four subblocks (1, 2, 3, 4, 6, 8, 12, or 24 are all valid numbers). The one subblock design would contain all repetitions of all levels within that one subblock; randomizing the order of trials within the subblock would be equivalent to the field-standard of simple restricted randomization. In contrast, for a design with 24 subblocks, each subblock would contain only one repetition of each level of the independent variable, ordered in a random sequence. Designs with a maximum number of subblocks maximize power, but with the disadvantage of creating a sequence where some of the elements are predictable, especially when the number of levels of the independent variable is small [cite:@Liang_Barr_2024]. We were interested in the best possible performance of PSR, so we included a design in our simulations that had the maximum number of subblocks (PSR-M). We also evaluated the performance of a version of PSR that had the `submaximum' number of subblocks (PSR-S); that is, the penultimate number in the set of possible subblocks (e.g., 12 for a design with 24 repetitions). In many experimental contexts, PSR-S may be preferable to PSR-M because it yields a sequence that participants will find hard to predict.
+
+* Method
+
+** Data Availability
+
+The software to run the simulations along with additional scripts and resulting data are freely available in the public repository at <https://github.com/dalejbarr/improving-exp-power.git>. Simulations were programmed using a combination of C++20 and R [cite:@R_2025]. We used src_R{version$version.string}. The code for data generation was packaged into the R development package ~psrsim~. To ensure full reproducibility using the identical software environment, we enclosed all scripts needed to reproduce the simulations and compile this manuscript in a Docker container available at ~https://hub.docker.com/dalejbarr/improving-exp-power:latest~.
+
+** Error structures
+
+#+NAME: err-struct-examples
+#+HEADER: :file fig/error-structures.pdf :width 8 :height 2
+#+begin_src R :exports results :results output graphics file
+  set.seed(1453L)
+
+  .dat_err <- bind_rows(
+    psrsim::simdata_1f(etastep = 1L, nPart = 40L, nLevels = 4L, nReps = 12L,
+		 nSubblocks = 1L, mu = 0, prop_rint = 0, prop_rslp = 0,
+		 errstr = "noauto") |>
+      filter(id %in% c("P01", "P02", "P03", "P04", "P05")) |>
+      arrange(id, order) |>
+      mutate(errstr = "independent"),
+    psrsim::simdata_1f(etastep = 1L, nPart = 40L, nLevels = 4L, nReps = 12L,
+	       nSubblocks = 1L, mu = 0, prop_rint = 0, prop_rslp = 0,
+	       errstr = "expDecay") |>
+    filter(id %in% c("P01", "P02", "P03", "P04", "P05")) |>
+    arrange(id, order) |>
+    mutate(errstr = "learning"),
+    psrsim::simdata_1f(etastep = 1L, nPart = 40L, nLevels = 4L, nReps = 12L,
+	       nSubblocks = 1L, mu = 0, prop_rint = 0, prop_rslp = 0,
+	       errstr = "randomWalk") |>
+    filter(id %in% c("P01", "P02", "P03", "P04", "P05")) |>
+    arrange(id, order) |>
+    mutate(errstr = "r.walk"),
+    psrsim::simdata_1f(etastep = 1L, nPart = 40L, nLevels = 4L, nReps = 12L,
+	       nSubblocks = 1L, mu = 0, prop_rint = 0, prop_rslp = 0,
+	       errstr = "pinkNoise") |>
+    filter(id %in% c("P01", "P02", "P03", "P04", "P05")) |>
+    arrange(id, order) |>
+    mutate(errstr = "pink"),
+    psrsim::simdata_1f(etastep = 1L, nPart = 40L, nLevels = 4L, nReps = 12L,
+	       nSubblocks = 1L, mu = 0, prop_rint = 0, prop_rslp = 0,
+	       errstr = "mixed") |>
+    filter(id %in% c("P01", "P02", "P03", "P04", "P05")) |>
+    arrange(id, order) |>
+    mutate(errstr = "mixed")) |>
+    mutate(errstr = fct_relevel(errstr, "independent", "learning", "r.walk", "pink", "mixed"))
+
+  ggplot(.dat_err,
+	 aes(order, dv, color = id)) +
+      geom_point(aes(shape = id), alpha = .5, size = 1) +
+      geom_line(aes(group = id), alpha = .5) +
+      facet_wrap(~ errstr, shrink = TRUE, ncol = 5) +
+      scale_x_continuous(breaks = c(1, 6, 12, 18, 24)) +
+      coord_cartesian(xlim = c(1, 24), ylim = c(-3, 7)) +
+      ylab("error") +
+      xlab("trial number") +
+      guides(color = "none", shape = "none") +
+      theme_bw()
+#+end_src
+
+#+NAME: fig:error-structures
+#+CAPTION: Examples of the four time-varying error structures, generated for a design with 48 trials and zoomed in on the first 24 trials. Each plot shows a subset of error patterns for five hypothetical participants, identified by color and shape. The independent error structure is provided for reference but was not used in the simulations. 
+#+RESULTS: err-struct-examples
+[[file:fig/error-structures.pdf]]
+
+We generated four time-varying error structures (Figure\nbsp{}[[fig:error-structures]]) that represent realistic hypothetical patterns in human behavioral data: a learning effect, a random walk pattern, pink noise, and a `mixed' structure which was a random combination of the previous three. The errors for each participant were scaled to have a mean of zero and standard deviation of one.
+
+The /learning effect/ structure reflects the common scenario of an effect where early observations are extreme (e.g., slow response times) but converge over time to some asymptotic value as participants become accustomed to the experimental situation. This was simulated using the exponential decay function \(y = \exp\left(-(\lambda + S_{\lambda i}) \frac{t}{N}\right)\), where \(t\) is trial number, \(N\) is the total number of trials, and \(\lambda\) controls the speed of the convergence to asymptote. The \(\lambda\) parameter for a given hypothetical experiment was randomly chosen from a uniform distribution ranging from log(2) to log(15). A random offset \(S_{\lambda i}\) was generated for each participant \(i\) from a normal distribution with mean of zero and standard deviation of .8, so that there would be individual differences in the time-course of adaptation. A small amount of white noise was added (comprising 10% of the total variance) to reflect trial-by-trial variation; otherwise the curve would be perfectly smooth.
+
+The /random walk/ structure was intented to reflect the natural waxing and waning of participants' attention and motivation over the course of an experimental session [cite:@Baayen_et-al_2017], a likely source of autocorrelation in behavioral data. This was assumed to be idiosyncractic across participants, such that the curves would tend to cancel when averaged together. These structures were generated using the Gaussian Random Walk algorithms of [cite/t:@Shinozuka_Deodatis_1991] as implemented by [cite/t:@Thul_Conklin_Barr_2021], with \(\sigma = 1\) and \(\gamma = 2\). [cite/t:@Thul_Conklin_Barr_2021] provide mathematical details for the implementation in their Appendix. As with the learning effect, we added a small amount of white noise so that the curves would not be unrealistically smooth (10% of the total variation).
+
+/Pink noise/ (also known as 1/f noise) is a type of noise observed in human behavioral data that is also found in complex systems, and is believed to reflect processes of self-organization [cite:@Gilden_Thornton_Mallon_1995]. It is distinguished by its spectral characteristics, where the power of a given frequency \(f\) is given by its reciprocal, \(\frac{1}{f^\alpha}\), where \(\alpha\) is some value close to 1. We generated sequences using the (nonexported) function ~TK95~ of the R package ~tuneR~  [cite:@Ligges_et-al_2023]. For each hypothetical experiment, \(\alpha\) was chosen from a uniform distribution ranging from .8 to 1.2.
+
+Finally, the /mixed/ error pattern was generated to reflect the idea that any given participant's error pattern is likely to be some idiosyncratic weighted combination of the previous three patterns. Thus, to generate errors for a given simulated participant, the weight for each of the three patterns was chosen from a uniform distribution (range 0 to 1) and then the three weights were normalized (divided by their sum) so that together they would sum to 1. This meant that on average each pattern would be weighted roughly equally (by about 1/3), but that sometimes simulated participants would have one (or two) of the three error patterns predominating.
+
+** Study designs
+
+Because we were interested in how correction methods could increase power without increasing the participant sample size, we kept the participant sample size fixed at 25 participants, a reasonably small value. An important variable to consider in the discussion of time-dependent nuisance variation is the number of trials in an experiment, which in turn is controlled by three parameters: the number of independent variables, the number of levels of each, and the number of repeated observations. For simplicity, we only considered designs with a single independent variable; however, our results can be generalized to higher-order designs in that they provide an estimate of `omnibus' power: for instance, the power estimate for the main effect of one-factor design with four levels is equivalent to the power for an omnibus test for a 2x2 factorial design; likewise the power estimate for a one-factor design with eight levels is equivalent to the power of an omnibus test for a 2x4 or 2x2x2 factorial design.
+
+For the two design parameters—number of levels of the independent variable, and number of repetitions—we chose typical values from experimental psychology, as determined from a survey of a year's worth of experiments published in the /Journal of Experimental Psychology: Human Perception & Performance/ [cite:@Liang_Barr_2024]. This led to the selection of nine designs, obtained by factorially combining the number of levels of the independent variable, \(n_k \in \left(2, 4, 8\right)\), and the number of repeated observations in each condition of the study, \(n_r \in \left(6, 12, 24\right)\). Thus, a given design would have \(n_k \times n_r\) trials for each participant, meaning that we had one design with 12 trials \((2 \times 6\)); two designs with 24 \((4 \times 6, 2 \times 12)\); three designs with 48 \((8 \times 6, 4 \times 12, 2 \times 24)\); two designs with 96 \((4 \times 24, 8 \times 12)\); and one design with 192 \((8 \times 24)\). Studies can sometimes have multiple blocks of trials administered with breaks in between or on separate sessions, with the time-varying error pattern restarting after a rest period. Our goal here is to model data from a single block; these techniques can be easily extended to designs with multiple blocks.
+
+We also did not simulate the common situation where the multiple trials represent different stimuli. Such a design would incorporate stimulus effects in the generation as well as in the data analysis. This seemed like an unnecessary complication, since it would just be adding independent effects that could be easily recovered by additional by-stimulus random effects in the model, increasing the computational burden without improving insight or generality.
+
+** Data simulation
+
+The algorithm for simulating data was similar to that described in [cite/t:@Liang_Barr_2024] with some minor differences. The generating algorithm for the dependent variable \(Y_{ijt}\) for participant \(i\) in condition \(j\) on trial number \(t\) is given by
+
+#+begin_export latex
+\begin{equation}
+Y_{ijt} = \mu + S_{\mu i} + \beta_j + S_{\beta ij} + e_{it}
+\end{equation}
+#+End_export
+
+where \(\mu\) is the grand mean, \(S_{\mu i}\) is the random intercept for participant \(i\), \(\beta_j\) is the main effect of condition \(j\), \(S_{\beta ij}\) is the random slope for participant \(i\) in condition \(j\), and \(e_{it}\) is the error on trial \(t\) for participant \(i\). Errors were generated independently for each participant in line with the target time-varying error structure, as described above.
+
+The error variance was always fixed to 1. The random effect variances were defined so that the random intercept variance was about 35% of the size of the error variance, and the random slope variance was about 11%. These values are close to the central values found for a convenience sample of psycholinguistic datasets [cite:see Table 4 in the appendix of @Barr_et-al_2013].
+
+#+begin_src R :exports none :results silent
+  .des <- crossing(nl = c(2L, 4L, 8L),
+		   nr = c(6L, 12L, 24L)) |>
+    mutate(eta_sq = map2_dbl(nl, nr,
+			     function(.b, .c) {
+			       psrsim:::etaSQ_1f(25L, .b, .c)[4]
+			       }))
+#+end_src
+
+#+begin_export latex
+\begin{table}[t]
+\caption{\label{tab:etasq} Values of eta-squared ($\eta^2$) for the nine study designs.} 
+\begin{tabular}{ccccccccccc}
+\toprule
+\multicolumn{3}{c}{2 level design} & & \multicolumn{3}{c}{4 level design} & & \multicolumn{3}{c}{8 level design} \\ \cline{1-3} \cline{5-7} \cline{9-11} 
+6 reps & 12 reps & 24 reps & & 6 reps & 12 reps & 24 reps & & 6 reps & 12 reps & 24 reps \\ \cline{1-3} \cline{5-7} \cline{9-11} 
+ .01326 & .01193 & .01040 & & .00849 & .00583 & .00506 & & .00544 & .00392& .00316 \\ 
+\bottomrule
+\end{tabular}
+\end{table}
+#+end_export
+
+Because the fixed intercept term \(\mu\) was not of interest it was fixed at zero across all simulations. For the power simulations, we considered only one main effect size for each design, measured as eta-squared (\(\eta^2\)). The values of \(\eta^2\) were determined independently for each design by pilot simulations to provide around 25-30% power for a design with independent errors (Table\nbsp{}\ref{tab:etasq}). The individual main effect values for each experiment were generated randomly to match \(\eta^2\).
+
+** PSR implementation
+
+We implemented PSR following the algorithm described in [cite/t:@Liang_Barr_2024]. For each design, we considered two implementations: (1) PSR-M, which had the maximum number of possible subblocks, such that each subblock had single repetition of each condition; and (2) PSR-S, which had the `submaximum', i.e., the largest number in the set of valid subblocks excluding the maximum. Since the number of repetitions was 6, 12, or 24, this meant PSR-M had 6, 12, or 24 subblocks, and PSR-S had 3, 6, or 12 subblocks. As a `no correction' baseline, we also included designs with one subblock, with is equivalent to the field standard of simple restricted randomization.
+
+** Wiggly Intercepts Models (WIMs)
+
+We wanted to ensure that we compared the performance of PSR to the best possible performance of GAMMs. We therefore fit a model with a "wiggly intercept", which included a /factor smooth/ term [cite:@Wood_2017; @Baayen_et-al_2017] so that each participant could have a distinct wiggly pattern. This model, expressed in ~mgcv~ model syntax was
+
+#+begin_src R :exports code :results silent :eval never
+  dv ~ cond +
+    s(id, cond, bs = "re") +  # random slope for condition
+    s(order, id, bs = "fs",   # factor smooth
+      xt = list(bs = "ps"), 
+      m = 1, k = targ_k)
+#+end_src
+
+where ~dv~ is the dependent variable, ~cond~ is a factor representing the independent variable, ~id~ is a factor whose values uniquely identify individual participants, and ~order~ is a variable representing the trial number. In addition to the main effect of condition, the model included a by-participant random slope for condition, given by the term ~s(id, cond, bs = "re")~. The /factor smooth/ term was ~s(order, id, bs = "fs", xt = list(bs = "ps"), m = 1, k = targ_k)~ where ~bs = "fs"~ selects a factor smooth, and ~xt = list(bs = "ps")~ selects a p-spline basis.[fn::Because it is necessary to set the ~bs~ argument to ~"fs"~ to get a factor smooth, choosing the basis for a factor smooth is accomplished using the ~xt~ argument instead.] We chose p-splines based on simulations (see Supplementary Materials) that compared thin plates (~"tp"~), cubic regression (~"cr"~), and p-splines (~"ps"~). These simulations found that p-splines yielded the greatest increase in power, although differences were minor. For discussion of different types of basis functions, see the ~mgcv~ documentation for ~smooth.terms~. 
+
+The ~k = targ_k~ term sets the number of basis functions to the value of ~targ_k~. Its value varied across the combinations of error structure, number of levels of the independent variable, and number of repetitions. We used simulations (see Supplementary Materials) to determine the optimal value for each combination. The estimation function for GAMMs determines the appropriate number of basis functions from some starting value, appearing as "estimated degrees of freedom" for the factor smooth in the statistical output. The value of the ~k~ parameter supplied by the user is the maximum number of basis functions to allow. The default value of ~k~ is 10, which is too few for longer sequences (48, 96, or 192 trials) and too long for short sequences (12 and 24). The problem with too few basis functions is underfitting; the problem with too many is that the computation takes too long. We ran simulations to determine the optimal number of basis functions ranging from a minimum of six to a maximum of 1/3 of the total number of trials (i.e., one basis function for every 3 data points). The results are described in the Supplementary Materials.
+
+Note that the above model contains only one wiggly term—the factor smooth. At first glance, it might seem that the model is lacking a "fixed" smooth to capture any mean wiggly pattern averaged over participants. However, this is unnecessary because factor smooths do not sum to zero, and so they can implicitly capture the overall mean wiggle was well as participant-specific wiggles. Adding an additional "grand mean" smooth such as ~s(order, bs = "ps")~ simply adds unnecessary complexity to the model, making it take longer to estimate. Having a fixed smooth can be useful in cases where the goal is to test whether the variability in the overall mean over time is statistically significant. Here, our interest is simply in controlling for the variability, and so a single wiggly term is sufficent and computationally leaner.
+
+GAMM models were fit using the ~bam()~ function of ~mgcv~, version src_R{packageVersion("mgcv") |> as.character()} [cite:@Wood_2017].
+
+** Baseline model with no correction
+
+As noted above, these were compared to "no-correction" baseline models with no factor smooth; that is, a simple linear mixed-model containing random intercepts and random slopes. The syntax for the baseline model is below.
+
+#+begin_src R :exports code :eval never :results silent
+  dv ~ cond +
+    s(id, cond, bs = "re") +  # random slopes for condition
+    s(id, bs = "re")          # random intercepts  
+#+end_src
+
+This syntax is identical to the syntax for the WIM model except that the factor smooth term is replaced with a random intercept term. This was also used as the model syntax for the PSR models; thus any power advantages for PSR come from the design, not from the model.
+
+** Model estimation
+
+Models were fit using the ~bam()~ function from the ~mgcv~ package (version src_R{packageVersion("mgcv") |> as.character()}) for R [cite:@Wood_2017].  To derive \(p\)-values we used the ~anova.gam()~ function from ~mgcv~.
+
+** Experimental designs
+
+The three experimental designs we considered were identified as representative of small, medium, and large experimental datasets based on a review of all papers published in the /Journal of Experimental Psychology: Human Perception & Performance/ over the year 2023 [cite:@Liang_Barr_2024]. All designs included a single within-participant independent variable and a continuous, normally-distributed dependent variable. The small design comprised 25 participants with a two-level independent variable and six repeated trials per condition per participant, for a total of 300 trials. The medium design had 40 participants with a four-level independent variable and twelve repetitions, yielding 9,600 trials. Finally, the large design has 60 participants with an eight-level independent variable and 24 repetitions per condition per participants, yielding 57,600 trials. Although single-factor designs with many levels are less common than multi-factor designs, the four conditions in the medium design can also be viewed as corresponding to the cells of a two-by-two fully-within participant factorial design, and the eight conditions in the large design as cells of a two-by-two-by-two design. Under this interpretation, the estimated power gains for the test of the main effect in a single factor design would correspond to the power gain for the `omnibus' test against the null in multifactor designs.
+
+*** Subblock settings
+
+The set of possible subblocks for a design with \(n_r\) repetitions per condition is the set of integer divisors of \(n_r\), with 1 and \(n_r\) representing the minimum and maximum, respectively. For instance, with six repetitions, \(S_6 = {1, 2, 3, 6}\) and with 24 repetitions, \(S_{24} = {1, 2, 3, 4, 6, 8, 12, 24}\). Power gains are a monotonically increasing function of the number of subblocks [cite:@Liang_Barr_2024], and so for simplicity we considered only three subblock settings: 1, /submaximum/, and /maximum/ (\(n_r\)). Permuted subblock randomization with a single subblock corresponds to the standard restricted randomization procedure widely in practice across experimental psychology, and forms a baseline against which power gains for PSR with additional subblocks can be assessed. The /submaximum/ refers to the penultimate number in the ascending sequence of integer divisors of \(n_r\), and is included because using the maximum number of subblocks may not be feasible if it results in a sequence that is too easy for the participant to predict.
+
+* Results
+
+#+NAME: power
+#+begin_src R :exports none :results silent
+  .dplot <- dat_sum |>
+    mutate(case = recode_values(case,
+				"PSRm" ~ "Pm",
+				"PSRs" ~ "Ps",
+				"WRI" ~ "W",
+				"WRI+PSRs" ~ "W+Ps",
+				"WRI+PSRm" ~ "W+Pm") |>
+	     fct_relevel("Ps", "Pm", "W", "W+Ps"),
+	   nrep = recode_values(nr,
+				6L ~ "6 repetitions",
+				12L ~ "12 repetitions",
+				24L ~ "24 repetitions") |>
+	     fct_relevel("6 repetitions", "12 repetitions"),
+	   nlvl = recode_values(nl,
+				2L ~ "2 levels",
+				4L ~ "4 levels",
+				8L ~ "8 levels") |>
+	     fct_relevel("2 levels", "4 levels"),
+	   adv = if_else(adv < 0, 0, adv))
+
+  .dplot_ns <- dat_isEffective |>
+    mutate(case = recode_values(case,
+				"PSRm" ~ "Pm",
+				"PSRs" ~ "Ps",
+				"WRI" ~ "W",
+				"WRI+PSRs" ~ "W+Ps",
+				"WRI+PSRm" ~ "W+Pm") |>
+	     fct_relevel("Ps", "Pm", "W", "W+Ps"),
+	   nrep = recode_values(nr,
+				6L ~ "6 repetitions",
+				12L ~ "12 repetitions",
+				24L ~ "24 repetitions") |>
+	     fct_relevel("6 repetitions", "12 repetitions"),
+	   nlvl = recode_values(nl,
+				2L ~ "2 levels",
+				4L ~ "4 levels",
+				8L ~ "8 levels") |>
+	     fct_relevel("2 levels", "4 levels"),
+	   adv = if_else(adv < 0, 0, adv)) |>
+    filter_out(sigdiff_bl) |>
+    select(nlvl, nrep, estr, case, adv)
+
+  plot_adv <- function(.data, plot.title = "generic", max_y = 60,
+		       .data_ns) {
+    .data |>
+      ggplot(aes(case, adv, fill = case)) +
+      geom_col() +
+      geom_text(aes(label = adv_f, group = case, color = case),
+		show.legend = FALSE, size = 3, nudge_y = 7) +
+      geom_label(aes(group = case),
+		data = .data_ns, fill = "#FFFFDD",
+		label = "n.s.", 
+		show.legend = FALSE, size = 3, nudge_y = 25) +
+      scale_color_manual(values = c("#DD0000", "#660000",
+				    "#006600", "#0000FF", "#000088")) +
+      scale_fill_manual(values = c("#DD0000", "#660000",
+				    "#006600", "#0000FF", "#000088")) +
+      facet_grid(nlvl ~ nrep) +
+      guides(fill = "none", color = "none") +
+      ggtitle(plot.title) +
+      theme_bw() +
+      ylim(c(0, max_y)) +
+      ylab("increase in power from baseline") +
+      xlab("correction method")
+  }
+
+  ## .max_y <- dat_sum |> pull(adv_1) |> max()
+  .max_y <- 90
+
+  dss_f <- .dplot |>
+    mutate(adv_f = sprintf("%0.0f%%", adv))
+
+  .gle <- dss_f |>
+    filter(estr == "learning effect") |>
+    plot_adv("learning effect", .max_y,
+	     .dplot_ns |> filter(estr == "learning effect"))
+
+  .grw <- dss_f |>
+    filter(estr == "random walk") |>
+    plot_adv("random walk", .max_y,
+	     .dplot_ns |> filter(estr == "random walk"))
+
+  .gpn <- dss_f |>
+    filter(estr == "pink noise") |>
+    plot_adv("pink noise", .max_y,
+	     .dplot_ns |> filter(estr == "pink noise"))
+
+  .gmx <- dss_f |>
+    filter(estr == "mixed") |>
+    plot_adv("mixed", .max_y,
+	     .dplot_ns |> filter(estr == "mixed"))
+
+  ## (.gle + .grw) / (.gpn + .gmx)
+#+end_src
+
+#+NAME: power-learning
+#+HEADER: :file fig/power-learning.pdf :width 8 :height 4
+#+begin_src R :exports results :results output graphics file
+  .gle +
+    theme(title = element_blank())
+#+end_src
+
+#+NAME: fig:power-learning
+#+CAPTION: Power improvement from baseline for the learning effect scenario. Pm: PSR with maximum subblocks; Ps: PSR with submaximum subblocks; W: Wiggly Intercept Model; "n.s.": no statistically significant advantage.
+#+RESULTS: power-learning
+[[file:fig/power-learning.pdf]]
+
+#+NAME: power-rwalk
+#+HEADER: :file fig/power-rwalk.pdf :width 8 :height 4
+#+begin_src R :exports results :results output graphics file
+  .grw +
+    theme(title = element_blank())
+#+end_src
+
+#+NAME: fig:power-rwalk
+#+CAPTION: Power improvement from baseline for the random walk scenario. Pm: PSR with maximum subblocks; Ps: PSR with submaximum subblocks; W: Wiggly Intercept Model.
+#+RESULTS: power-rwalk
+[[file:fig/power-rwalk.pdf]]
+
+#+NAME: power-pink
+#+HEADER: :file fig/power-pink.pdf :width 8 :height 4
+#+begin_src R :exports results :results output graphics file
+  .gpn +
+    theme(title = element_blank())
+#+end_src
+
+#+NAME: fig:power-pink
+#+CAPTION: Power improvement from baseline for the pink noise scenario. Pm: PSR with maximum subblocks; Ps: PSR with submaximum subblocks; W: Wiggly Intercept Model; "n.s.": no statistically significant advantage.
+#+RESULTS: power-pink
+[[file:fig/power-pink.pdf]]
+
+#+NAME: power-mixed
+#+HEADER: :file fig/power-mixed.pdf :width 8 :height 4
+#+begin_src R :exports results :results output graphics file
+  .gmx +
+    theme(title = element_blank())
+#+end_src
+
+#+NAME: fig:power-mixed
+#+CAPTION: Power improvement from baseline for the mixed scenario. Pm: PSR with maximum subblocks; Ps: PSR with submaximum subblocks; W: Wiggly Intercept Model; "n.s.": no statistically significant advantage.
+#+RESULTS: power-mixed
+[[file:fig/power-mixed.pdf]]
+
+In total, the simulations investigated 36 distinct scenarios, obtained by factorially combining the four error structures (learning, random walk, pink noise, and mixed) with the three values for the number of levels of the independent variable (2, 4, and 8) and the three values for the number of times each level was repeated (6, 12, or 24). Figures\nbsp{}[[fig:power-learning]]–[[fig:power-mixed]] show the complete results. Each figure represents the power benefit (relative to the uncorrected baseline) from one of the four error scenarios, broken down by the number of levels, number of repetitions, and correction method.
+
+#+begin_src R :exports none :results silent
+  .howmany_PSRm <- dat_casesum |> filter(case == "PSRm") |> pull(nsig)
+  .howmany_PSRm_fmt <- sprintf("%d (%0.1f%%)", .howmany_PSRm, 100 * .howmany_PSRm / 36)
+
+  .howmany_WIM <- dat_casesum |> filter(case == "WRI") |> pull(nsig)
+  .howmany_WIM_fmt <- sprintf("%d (%0.1f%%)", .howmany_WIM, 100 * .howmany_WIM / 36)
+
+  .psrm_stats <- dat_casesum |> filter(case == "PSRm") |> select(min:max) |>
+    pivot_longer(min:max, names_to = "var", values_to = "value") |>
+    deframe()
+
+  .psrs_stats <- dat_casesum |> filter(case == "PSRs") |> select(min:max) |>
+    pivot_longer(min:max, names_to = "var", values_to = "value") |>
+    deframe()
+
+  .wim_stats <- dat_casesum |> filter(case == "WRI") |> select(min:max) |>
+    pivot_longer(min:max, names_to = "var", values_to = "value") |>
+    deframe()
+
+  .eff_by_err <- dat_isEffective |>
+    filter(case %in% c("PSRm", "WRI")) |>
+    group_by(case, estr) |>
+    summarize(median = median(adv),
+	      .groups = "drop") |>
+    arrange(case, desc(median))
+
+  .psrm_by_err <- .eff_by_err |>
+    filter(case == "PSRm") |>
+    select(-case) |>
+    deframe()
+
+  .wim_by_err <- .eff_by_err |>
+    filter(case == "WRI") |>
+    select(-case) |>
+    deframe()
+
+  .dat_best_cases <- dat_isEffective |>
+    filter(case %in% c("PSRm", "WRI")) |>
+    group_by(case) |>
+    filter(adv == max(adv)) |>
+    ungroup()
+
+  .best_psrm <- .dat_best_cases |>
+    filter(case == "PSRm") |>
+    pull(adv)
+
+  .best_wim <- .dat_best_cases |>
+    filter(case == "WRI") |>
+    pull(adv)
+#+end_src
+
+To identify statistically significant improvements over baseline, we used a series of chi-square tests of independence with \(\alpha = .01\). Overall, PSR with the maximum number of subblocks (PSR-M) improved power relative to the no-correction baseline in src_R{.howmany_PSRm_fmt} cases, with a minimum benefit of src_R{.pfmt(.psrm_stats["min"])}, a median of src_R{.pfmt(.psrm_stats["median"])}, and maximum of src_R{.pfmt(.psrm_stats["max"])}. In contrast, WIMs improved power in src_R{.howmany_WIM_fmt} cases, with a minimum of src_R{.pfmt(.wim_stats["min"])}, a median of src_R{.pfmt(.wim_stats["median"])}, and a maximum of src_R{.pfmt(.wim_stats["max"])}. Neither approach ever impaired power relative to baseline. Thus, for four main plausible types of time-varying error structures, either correction method is likely to yield some benefit.
+
+For PSR-M, the largest benefits were observed for the src_R{names(.psrm_by_err)[1]} scenario (src_R{.pfmt(.psrm_by_err[1])} median benefit), followed by src_R{names(.psrm_by_err)[2]} (src_R{.pfmt(.psrm_by_err[2])}), then src_R{names(.psrm_by_err)[3]} (src_R{.pfmt(.psrm_by_err[3])}), and lastly, src_R{names(.psrm_by_err)[4]} (src_R{.pfmt(.psrm_by_err[4])}). For WIMs, the largest benefit was in the src_R{names(.wim_by_err)[1]} scenario (src_R{.pfmt(.wim_by_err[1])} median benefit), followed by src_R{names(.wim_by_err)[2]} (src_R{.pfmt(.wim_by_err[2])}), then src_R{names(.wim_by_err)[3]} (src_R{.pfmt(.wim_by_err[3])}), and lastly, src_R{names(.wim_by_err)[4]} (src_R{.pfmt(.wim_by_err[4])}). 
+
+Except in the pink noise scenario, the benefits for either approach were largest for designs with fewer repetitions. For WIMs, performance tends to increase with the number of levels of the independent variable, such that WIMs do best when there are many levels of the independent variable but with few repetitions of each. The best performance of WIMs was in the random walk scenario with six repetitions of each of the eight levels of the independent variable, where WIMs showed an impressive benefit (src_R{.pfmt(.best_wim)}). In contrast, PSR-M does not show an overall consistent pattern of the effect of the number of levels across error scenarios. The best performance of PSR-M was in the random walk scenario with six repetitions of a four level variable (benefit of src_R{.pfmt(.best_psrm)}).
+
+#+HEADER: :file fig/head-to-head.pdf :width 8 :height 4
+#+begin_src R :exports results :results output graphics file
+  .dat_cmp_plot <- dat_cmp |>
+    mutate(win_by = if_else(winner == "PSRm", -win_by, win_by)) |>
+    filter(sigdiff) |>
+    arrange(desc(win_by)) |>
+    mutate(rn = -row_number(),
+	   wbf = sprintf("%0.0f%%", abs(win_by)),
+	   nge = if_else(winner == "PSRm", -1.5, 2),
+	   case = recode_values(estr,
+				"learning effect" ~ "learning",
+				"random walk" ~ "r.walk",
+				"pink noise" ~ "pink",
+				default = estr),
+	   lvs = paste0(nl, "L"),
+	   rps = paste0(nr, "R")) |>
+    select(rn, case, lvs, rps, estr, win_by, wbf, nge)
+
+  .dat_shade <- tibble(xmin = seq(-1, -14, by = -2) - .5,
+		       xmax = xmin - 1,
+		       ymin = -Inf, ymax = +Inf)
+
+  ggplot(.dat_cmp_plot,
+	 aes(rn, win_by)) +
+    geom_rect(aes(xmin = xmin, ymin = ymin,
+		  xmax = xmax, ymax = ymax),
+	      data = .dat_shade,
+	      fill = "#EEEEEE",
+	      inherit.aes = FALSE) +
+    geom_col(aes(fill = estr)) +
+    geom_text(aes(label = wbf, color = estr, nudge_y = nge)) +
+    geom_hline(yintercept = 0, linewidth = .25) +
+    coord_flip(ylim = c(-20, 38), xlim = c(-1, -15)) +
+    scale_y_continuous(breaks = seq(-10, 40, by = 10),
+		       labels = c(10, seq(0, 40, by = 10))) +
+    annotate(geom = "segment",
+	     x = -15, y = 0, xend = -15, yend = -10,
+	     arrow = arrow(angle = 30, length = unit(0.1, "inches"))) +
+    annotate(geom = "segment",
+	     x = -15, y = 0, xend = -15, yend = 10,
+	     arrow = arrow(angle = 30, length = unit(0.1, "inches"))) +
+    annotate(geom = "text",
+	      x = -15, y = 14, label = "favors WIMs", size = 3) +
+    annotate(geom = "text",
+	     x = -15, y = -14, label = "favors PSRm", size = 3) +
+    geom_text(aes(label = case), y = -22, hjust = 0) +
+    geom_text(aes(label = lvs), y = -14.5, hjust = 1) +
+    geom_text(aes(label = rps), y = -11, hjust = 1) +
+    theme_minimal() +
+    theme(legend.position = "top",
+	  panel.grid.major.x = element_blank(),
+	  panel.grid.minor.x = element_blank(),
+	  panel.grid.major.y = element_blank(),
+	  panel.grid.minor.y = element_blank(),
+	  axis.title.x = element_blank(),
+	  axis.text.x = element_blank(),
+	  axis.title.y = element_blank(),
+	  axis.text.y = element_blank(),
+	  legend.title = element_blank()) +
+    guides(fill = "none", color = "none")
+#+end_src
+
+#+NAME: fig:poweradv
+#+CAPTION: The fourteen (of thirty-six) cases where the power benefit significantly differed for PSR-M and WIMs, with the percent advantage for each case; L = levels of the IV; R = reps.
+#+RESULTS:
+[[file:fig/head-to-head.pdf]]
+
+#+begin_src R :exports none :results silent
+  .dat_h2h <- dat_cmp |>
+    inner_join(dat_bl |> select(nl, nr, estr, pow_bl = power),
+	       join_by(nl, nr, estr))
+
+  .winner_wim <- .dat_h2h |>
+    filter(winner == "WRI") |>
+    filter(near(win_by, max(win_by))) |>
+    select(power_PSRmp, power_WRI, pow_bl) |>
+    pivot_longer(everything(),
+		 names_to = "var",
+		 values_to = "value") |>
+    deframe()
+
+  .winner_psrm <- .dat_h2h |>
+    filter(winner == "PSRm") |>
+    filter(near(win_by, max(win_by))) |>
+    select(power_PSRm, power_WRI, pow_bl) |>
+    pivot_longer(everything(),
+		 names_to = "var",
+		 values_to = "value") |>
+    deframe()
+
+  .wim_calc <- 100 * (.winner_wim["power_WRI"] - .winner_wim["power_PSRm"]) / .winner_wim["power_PSRm"]
+
+  .wim_example <- sprintf("= 100 x (%s - %s) / %s",
+	  no_zero(.winner_wim["power_WRI"], 4),
+	  no_zero(.winner_wim["power_PSRm"], 4),
+	  no_zero(.winner_wim["power_PSRm"], 4))
+
+  .winners_psrm <- .dat_h2h |>
+    filter(winner == "PSRm", sigdiff) |>
+    arrange(win_by)  |>
+    pull(win_by)
+#+end_src
+
+For a head-to-head comparison of the performance of PSR-M and WIMs, we compared their power using a series of chi-square tests (\(\alpha = .01\)). We found significant differences between the approaches in src_R{cmp_ndiff} of the 36 (src_R{.pfmt(100 * cmp_ndiff / 36)}) cases, with src_R{cmp_adv_wim} of the src_R{cmp_ndiff} (src_R{.pfmt(100 * cmp_adv_wim / cmp_ndiff)}) directly favoring WIMs (see Figure\nbsp{}[[fig:poweradv]]). The power advantages shown in the figure were calculated directly from the power estimates for the two approaches, rather than comparing the magnitudes of the increase from baseline (an example calculation is given below). Most of these advantages were localized to the learning effect and random walk cases. WIMs showed the greatest advantage in the random walk scenario with eight levels and six repetitions, where they improved power from a baseline level of src_R[:results output]{.c(no_zero(.winner_wim["pow_bl"], 4))} to src_R[:results output]{.c(no_zero(.winner_wim["power_WRI"], 4))}. In contrast, PSR-M improved power to src_R[:results output]{.c(no_zero(.winner_wim["power_PSRm"], 4))}. Thus, for this case, the relative power of WIMs over PSR-M was src_R{.pfmt(.wim_calc, 0)} (src_R{.wim_example}). The only two cases where PSR-M showed a significant advantage over WIMs were both for the pink noise scenario, with advantages over WIMs of src_R{.pfmt(.winners_psrm[1], 0)} and src_R{.pfmt(.winners_psrm[2], 0)}. In the latter case (four-level variable with six repetitions), PSR-M increased power to src_R[:results output]{.c(no_zero(.winner_psrm["pow_bl"], 4))} from a baseline of src_R[:results output]{.c(no_zero(.winner_psrm["power_PSRm"], 4))}, whereas WIMs increased it only to src_R[:results output]{.c(no_zero(.winner_psrm["power_WRI"], 4))}.
+
+In some scenarios, using PSR with the maximum number of subblocks (PSR-M) would not be recommended, because it could yield a sequence of trials that was too predictable. PSR with the submaximum number of subblocks (PSR-S) is therefore a more realistic alternative. As expected based on [cite/t:@Liang_Barr_2024], PSR with the submaximum subblocks (PSR-S) yielded benefits of a more modest nature compared to PSR-M. It improved power relative to the no-correction baseline in src_R{dat_casesum_s["nsig"]} of the 36 cases, with a minimum benefit of src_R{.pfmt(dat_casesum_s["min"])}, a median of src_R{.pfmt(dat_casesum_s["median"])}, and maximum of src_R{.pfmt(dat_casesum_s["max"])}. 
+
+#+begin_src R :exports none :results silent
+  .dat_cmb_stats <- dat_combined_v_best |>
+    filter(sigdiff_c) |>
+    arrange(desc(win_by2)) |>
+    select(nl, nr, estr, best, winner2, win_by2) |>
+    inner_join(dat_isEffective |>
+	       select(nl, nr, estr, case, power),
+	       join_by(nl, nr, estr, best == case)) |>
+    inner_join(dat_bl |> select(nl, nr, estr, pow_bl = power),
+	       join_by(nl, nr, estr))
+#+end_src
+
+In sum, the results so far show that it is advantageous to use model-based correction, except when errors are solely structured by pink noise. As previously noted, however, design-based and model-based approaches are not mutually exclusive; is there any advantage to combining them, over and above the benefits of using the best approach alone? To address this question, we used chi-square tests to compare the combined approach (PSR-M with WIMs) to the best approach alone (PSR-M or WIMs) in each scenario. There were only two cases in which the combined approach significantly differed from the best approach. In one case, it led to a minor improvement of about src_R{.pfmt(.dat_cmb_stats[["win_by2"]][1])} over a WIM alone. In the other case (learning-effect pattern with a two-level variable and 24 repetitions), the combined approach surprisingly /impaired/ performance by src_R{.pfmt(abs(.dat_cmb_stats[["win_by2"]][2]))} relative to the WIMs alone. Power for the combined approach in this latter case was still numerically larger than baseline (src_R[:results output]{.c(no_zero(.dat_cmb_stats[["power"]][2],4))}  versus src_R[:results output]{.c(no_zero(.dat_cmb_stats[["pow_bl"]][2],4))}, respectively). Thus, combining them still yielded some benefit relative to baseline, just a lower benefit than the model-based approach alone would yield.
+
+* General Discussion
+
+We consider the relative effectiveness of design-based or model-based methods for controlling time-dependent nuisance variation in experimental studies. The two specific approaches we considered—GAMMs with wiggly intercepts (WIMs) and Permuted Subblock Randomization (PSR)—improved power in nearly every scenario we investigated, and never once impaired it. Integrating these approaches into the standard design and analysis workflow would benefit researchers by making their experiments more efficient, and benefit the field by helping address the crisis of underpowered experiments.
+
+Improvements from the model-based approach matched or exceeded those from the design-based approach in all cases except pink noise, and there was almost never any additional benefit to combining them. But the superiority of WIMs does not imply that researchers should always choose WIMs over PSR, because more variables enter into a individual researcher's cost/benefit analysis than just the maximization of power. One possible concern about using model-based approaches is the risk of misimplementation: a very real risk in the case of highly technical frameworks such as GAMMs. As already noted, the model-based framework imposes technical challenges that researchers are often unequipped to meet. It also brings challenges with regard to interpreting and communicating the model output to other researchers, as well as the need to perform model diagnostics. In contrast, PSR has the benefit of being extremely simple to implement and communicate, and allows researchers to analyze their data using conventional techniques that are widely understood and easy to interpret and communicate. Each researcher will have a different decision calculus depending on their statistical and technical knowledge and should not be strong-armed into using one or the other approach.
+
+Model-based approaches have the benefit of being part of a long tradition of statistical research and development, in contrast to design-based approaches, which have only recently entered the scene [cite:@Liang_Barr_2024]. Permuted Subblock Randomization is just one of many possible randomization algorithms that could be used to improve power—there may be better algorithms waiting to be discovered that do a better job of controlling time-varying nuisance factors. Data from these simulations highlight possible areas for improvement. Consider, for instance, that the disparity in performance between WIMs and PSR grows as the number of levels of the independent variable increases, most visibly in the learning effect and random walk scenarios. Currently, PSR imposes no constrain on the order of trials within each individual subblock. It is possible that adding such constraints could reduce the disparity between the two approaches. In sum, there is room to further optimize design-based approaches, although it is unclear whether they could ever match or surpass the performance of the best model-based approaches.
+
+Just as design-based approaches can be made more attractive by improving their ability to capture temporal trends, model-based approaches can be made more attractive by making them easier to use. As noted above, WIMs actually have only one smooth component: a by-participant factor smooth. The specific technical challenges facing the researcher wishing to use WIMs include the unfamiliar syntax of the ~mgcv~ package and the specification of the type and number of basis functions. Many of these decisions, however, can be automated such that reasonable parameter values are automatically chosen, and the unfamiliar syntax can be translated into a more familiar modeling syntax such as that of the ~lme4~ package. This would bring WIMs in reach for anyone familiar with linear mixed-effects models, making them the default choice.
+
+It will not always be up to the researcher to choose between design-based and model-based approaches; sometimes, circumstances may favor one or the other approach. For instance, PSR requires that at least one independent variable is administered within participants. In the (admittedly rare) situation where there are multiple trials per participant but each participant is in a different condition, only model-based approaches will be applicable. Alternatively, experiments in which multiple observations over time are recorded for each trial may favor the use of PSR for controlling trial-by-trial effects. Such densely sampled observations are found with commonly used methods such as eye-tracking, pupillometry, or certain neuroimaging approaches (e.g., EEG or MEG). Adding trial-by-trial effects to a within-trial model of temporal effects would make an already complex model even more complicated. Under these circumstances, the researcher could design the experiment using PSR to capture trial-by-trial variation over time, while using a statistical model to capture the within-trial temporal effects of interest.
+
+This article has focused on temporal trends lurking in what we have referred to as the 'error stratum' of the model, and we have only focused on temporal changes in one aspect of a distribution: its mean. It is important to keep in mind that this is a simplifying assumption that we have made in order to offer solutions that are both practical and accessible. Although this is a much better starting point than the current default assumption that no change occurs at all, there can be changes in the shape of the distribution as well as changes in the magnitudes of effects of interest. Just as our research participants adapt and change to the circumstances of our experiments, as researchers we must also be ready to adapt our methods to our ever-advancing technologies of measurement and our increasing knowledge about the temporal characteristics of mind, brain, and behavior.
+  
+* References
+
+#+print_bibliography:
