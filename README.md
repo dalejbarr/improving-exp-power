@@ -1,8 +1,8 @@
-# Supplemental Materials for Liang & Barr, "Improving power without increasing sample size"
+# Liang & Barr, "Improving power without increasing sample size"
 
 This repository contains the source materials (code and data) for the paper [*Improving power without increasing sample size: Model-based and design-based strategies for controlling time-dependent nuisance variation in experiments*](manuscript/Liang_Barr_Improving-Power.pdf) by Jinghui Liang and Dale J. Barr.
 
-This repository also contains [supplementary materials](supplementary-materials.pdf) for the paper.
+This repository also contains [supplementary materials](supplementary/supplementary-materials.pdf) for the paper.
 
 We have also created a Docker image [`dalejbarr/improving-exp-power`](https://hub.docker.com/repository/docker/dalejbarr/improving-exp-power/) that contains the software environment needed to exactly reproduce our results, including our manuscript.
 
