@@ -1,0 +1,15 @@
+Package: psrsim
+Title: Functions for Running Simulations with Permuted Subblock Randomization
+Version: 0.0.2.9000
+Authors@R: 
+    person("Dale", "Barr", , "dalejbarr@protonmail.com", role = c("aut", "cre"))
+Description: Wraps C++ functions for data creation.
+License: CC BY 4.0
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+LinkingTo: 
+    Rcpp
+Imports: 
+    numbers,
+    Rcpp

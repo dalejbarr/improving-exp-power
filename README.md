@@ -69,6 +69,48 @@ where `nmc` is the number of Monte Carlo simulations and `output-dir` is the dir
 
 The main script `do-all-simulations.R` creates an R binary file which you can read into an R session using the `readRDS()` function (or similarly, using `readr::read_rds` from the tidyverse). 
 
+For instance:
+
+``` shell
+library("tidyverse")
+
+dat <- read_rds("D9ee42967a48b_1317376301_00002_25_2_06_2026-09-03 17:05:08.954532.rds")
+```
+
+The object `dat` will have the format: 
+
+```
+# A tibble: 108 × 10
+      np    nl    nr    ns errstr     etastep targ_k p_aov     p_lmm     p_gam 
+   <int> <int> <int> <int> <chr>        <int>  <int> <list>    <list>    <list>
+ 1    25     2     6     1 expDecay         4      6 <dbl [2]> <dbl [2]> <dbl> 
+ 2    25     2     6     3 expDecay         4      6 <dbl [2]> <dbl [2]> <dbl> 
+ 3    25     2     6     6 expDecay         4      6 <dbl [2]> <dbl [2]> <dbl> 
+ 4    25     2     6     1 pinkNoise        4      6 <dbl [2]> <dbl [2]> <dbl> 
+ 5    25     2     6     3 pinkNoise        4      6 <dbl [2]> <dbl [2]> <dbl> 
+ 6    25     2     6     6 pinkNoise        4      6 <dbl [2]> <dbl [2]> <dbl> 
+ 7    25     2     6     1 randomWalk       4      6 <dbl [2]> <dbl [2]> <dbl> 
+ 8    25     2     6     3 randomWalk       4      6 <dbl [2]> <dbl [2]> <dbl> 
+ 9    25     2     6     6 randomWalk       4      6 <dbl [2]> <dbl [2]> <dbl> 
+10    25     2     6     1 mixed            4      6 <dbl [2]> <dbl [2]> <dbl> 
+# ℹ 98 more rows
+# ℹ Use `print(n = ...)` to see more rows
+```
+
+Each row has results for a single parameter setting, where:
+
+- `np` : number of participants (fixed at 25)
+- `nl` : number of levels
+- `nr` : number of repetitions per level
+- `ns` : number of subblocks (for PSR; 1 = baseline)
+- `errstr` : error structure
+- `etastep` : effect size increment (eta); actual eta value varies depending on data structure (see manuscript)
+- `targ_k` : starting number of basis functions
+- `p_aov` : p-values for ANOVA (not reported in the manuscript); this is a 'list column' structure (nested vector)
+- `p_lmm` : p-values for PSR (or baseline if `ns=1`)
+- `p_gam` : p-values for the Wiggly Intercept model
+
+
 ## Compiling the manuscript
 
 To compile the report from scratch, use:
