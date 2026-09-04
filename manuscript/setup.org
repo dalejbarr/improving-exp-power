@@ -9,11 +9,11 @@
 #+latex_header: \usepackage{parskip}
 #+latex_header: \abstract{\input{abstract.tex}}
 #+latex_header: \keywords{experimental design, statistical power, measurement}
-#+latex_header: \authornote{$^*$Corresponding author: Dale J. Barr, School of Psychology \& Neuroscience, University of Glasgow, 62 Hillhead Street, Glasgow, UK, G12 8QB. Email: dale.barr@glasgow.ac.uk.}
+#+latex_header: \authornote{}
 #+latex_header: \usepackage{longtable}
 #+latex_header: \usepackage{soul}
 #+latex_header: \hypersetup{colorlinks,citecolor=blue,linkcolor=blue,urlcolor=red}
-#+latex_header: \authornote{This work was supported by a Chinese Scholarship Council (CSC) Grant (CSC no. 202108060121) to Jinghui Liang. The funding source had no role in the design or execution of the research. For the purpose of open access, the author(s) has applied a Creative Commons Attribution (CC BY) licence to any Author Accepted Manuscript version arising from this submission.}
+#+latex_header: \authornote{$^*$Corresponding author: Dale J. Barr, School of Psychology \& Neuroscience, University of Glasgow, 62 Hillhead Street, Glasgow, UK, G12 8QB. Email: dale.barr@glasgow.ac.uk. This work was supported by a Chinese Scholarship Council (CSC) Grant (CSC no. 202108060121) to Jinghui Liang. The funding source had no role in the design or execution of the research. For the purpose of open access, the authors have applied a Creative Commons Attribution (CC BY) licence to any Author Accepted Manuscript version arising from this submission.}
 #+OPTIONS: toc:nil num:nil ^:nil author:nil ':t
 #+latex_compiler: pdflatex
 #+bibliography: refs.bib
