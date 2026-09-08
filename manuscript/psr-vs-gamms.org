@@ -585,7 +585,7 @@ Except in the pink noise scenario, the benefits for either approach were largest
   .winner_wim <- .dat_h2h |>
     filter(winner == "WRI") |>
     filter(near(win_by, max(win_by))) |>
-    select(power_PSRmp, power_WRI, pow_bl) |>
+    select(power_PSRm, power_WRI, pow_bl) |>
     pivot_longer(everything(),
 		 names_to = "var",
 		 values_to = "value") |>
@@ -644,7 +644,7 @@ Just as design-based approaches can be made more attractive by improving their a
 It will not always be up to the researcher to choose between design-based and model-based approaches; sometimes, circumstances may favor one or the other approach. For instance, PSR requires that at least one independent variable is administered within participants. In the (admittedly rare) situation where there are multiple trials per participant but each participant is in a different condition, only model-based approaches will be applicable. Alternatively, experiments in which multiple observations over time are recorded for each trial may favor the use of PSR for controlling trial-by-trial effects. Such densely sampled observations are found with commonly used methods such as eye-tracking, pupillometry, or certain neuroimaging approaches (e.g., EEG or MEG). Adding trial-by-trial effects to a within-trial model of temporal effects would make an already complex model even more complicated. Under these circumstances, the researcher could design the experiment using PSR to capture trial-by-trial variation over time, while using a statistical model to capture the within-trial temporal effects of interest.
 
 This article has focused on temporal trends lurking in what we have referred to as the 'error stratum' of the model, and we have only focused on temporal changes in one aspect of a distribution: its mean. It is important to keep in mind that this is a simplifying assumption that we have made in order to offer solutions that are both practical and accessible. Although this is a much better starting point than the current default assumption that no change occurs at all, there can be changes in the shape of the distribution as well as changes in the magnitudes of effects of interest. Just as our research participants adapt and change to the circumstances of our experiments, as researchers we must also be ready to adapt our methods to our ever-advancing technologies of measurement and our increasing knowledge about the temporal characteristics of mind, brain, and behavior.
-  
+
 * References
 
 #+print_bibliography:
